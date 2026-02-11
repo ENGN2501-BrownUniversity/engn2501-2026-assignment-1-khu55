@@ -41,12 +41,19 @@
 #include "Tokenizer.hpp"
 
 #include "wrl/Node.hpp"
+#include <vector>
 
+class TokenizerFile;
 class LoaderStl : public Loader {
 
 private:
 
   const static char* _ext;
+
+  bool parseFacet(TokenizerFile& tkn,
+                  std::vector<float>& normal,
+                  std::vector<float>& coord,
+                  std::vector<int>& coordIndex);
 
 public:
 

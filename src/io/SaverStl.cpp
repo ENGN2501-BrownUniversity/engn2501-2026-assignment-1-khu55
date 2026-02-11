@@ -44,47 +44,101 @@
 #include "core/Faces.hpp"
 
 const char* SaverStl::_ext = "stl";
+// helper: remove directory + extension
+static std::string baseNoExt(const char* filename) {
+  std::string s = (filename ? filename : "mesh");
+  size_t p = s.find_last_of("/\\");
+  if(p != std::string::npos) s = s.substr(p + 1);
+  size_t d = s.find_last_of('.');
+  if(d != std::string::npos) s = s.substr(0, d);
+  if(s.empty()) s = "mesh";
+  return s;
+}
 
 //////////////////////////////////////////////////////////////////////
 bool SaverStl::save(const char* filename, SceneGraph& wrl) const {
-  bool success = false;
-  if(filename!=(char*)0) {
+    fprintf(stderr, ">>> SaverStl from: %s\n", __FILE__);
 
-    // Check these conditions
+  if(filename == nullptr) return false;
 
-    // 1) the SceneGraph should have a single child
-    // 2) the child should be a Shape node
-    // 3) the geometry of the Shape node should be an IndexedFaceSet node
+  // 1) the SceneGraph should have a single child
+  if(wrl.getNumberOfChildren() != 1) return false;
 
-    // - construct an instance of the Faces class from the IndexedFaceSet
-    // - remember to delete it when you are done with it (if necessary)
-    //   before returning
+  // 2) the child should be a Shape node
+  if (wrl.getNumberOfChildren() < 1) {
+      fprintf(stderr, "Error: SceneGraph is empty!\n");
+      return false;
+  }
 
-    // 4) the IndexedFaceSet should be a triangle mesh
-    // 5) the IndexedFaceSet should have normals per face
+  fprintf(stderr, ">>> Attempting to count children...\n");
+  int count = wrl.getNumberOfChildren();
+  fprintf(stderr, ">>> Count success: %d\n", count); // 看看这里能不能印出来
 
-    // if (all the conditions are satisfied) {
+  Node* child = wrl.getChild(0);
+  Shape* shape = dynamic_cast<Shape*>(child);
+  if(shape == nullptr) return false;
 
-    FILE* fp = fopen(filename,"w");
-    if(	fp!=(FILE*)0) {
+  // 3) the geometry of the Shape node should be an IndexedFaceSet node
+  Node* geom = shape->getGeometry();
+  IndexedFaceSet* ifs = dynamic_cast<IndexedFaceSet*>(geom);
+  if(ifs == nullptr) return false;
 
-      // if set, use ifs->getName()
-      // otherwise use filename,
-      // but first remove directory and extension
+  // construct Faces from IndexedFaceSet
+  std::vector<float>& coord = ifs->getCoord();        // flat xyzxyz...
+  std::vector<int>&   coordIndex = ifs->getCoordIndex();
 
-      fprintf(fp,"solid %s\n",filename);
+  if(coord.size() % 3 != 0) return false;
+  const int nV = (int)(coord.size() / 3);
 
-      // TODO ...
-      // for each face {
-      //   ...
-      // }
-      
-      fclose(fp);
-      success = true;
+  Faces faces(nV, coordIndex);
+
+  // 4) triangle mesh
+  for(int iF = 0; iF < faces.getNumberOfFaces(); iF++) {
+    if(faces.getFaceSize(iF) != 3) return false;
+  }
+
+  // 5) normals per face
+  bool& normalPerVertex = ifs->getNormalPerVertex();
+  if(normalPerVertex) return false;
+
+  std::vector<float>& normal = ifs->getNormal();      // flat nxnynz...
+  if(normal.size() % 3 != 0) return false;
+  if((int)(normal.size() / 3) != faces.getNumberOfFaces()) return false;
+
+  // all conditions satisfied -> write file
+  FILE* fp = fopen(filename, "w");
+  if(fp == nullptr) return false;
+
+  // name: (ifs->getName() not shown in header) => use filename w/o path/ext
+  std::string solidName = baseNoExt(filename);
+  fprintf(fp, "solid %s\n", solidName.c_str());
+
+  for(int iF = 0; iF < faces.getNumberOfFaces(); iF++) {
+
+    float nx = normal[3*iF + 0];
+    float ny = normal[3*iF + 1];
+    float nz = normal[3*iF + 2];
+
+    fprintf(fp, "  facet normal %g %g %g\n", nx, ny, nz);
+    fprintf(fp, "    outer loop\n");
+
+    for(int j = 0; j < 3; j++) {
+      int iV = faces.getFaceVertex(iF, j);
+      if(iV < 0 || iV >= nV) { fclose(fp); return false; }
+
+      float x = coord[3*iV + 0];
+      float y = coord[3*iV + 1];
+      float z = coord[3*iV + 2];
+
+      fprintf(fp, "      vertex %g %g %g\n", x, y, z);
     }
 
-    // } endif (all the conditions are satisfied)
-
+    fprintf(fp, "    endloop\n");
+    fprintf(fp, "  endfacet\n");
   }
-  return success;
+
+  fprintf(fp, "endsolid %s\n", solidName.c_str());
+  fclose(fp);
+  return true;
 }
+

@@ -88,6 +88,13 @@ public:
   int     getNextCorner(const int iC)              const;
 
 private:
+  int _nV = 0;
+  int _nF = 0;
+  vector<int> _coordIndex;      // 包含 -1
+  vector<int> _faceFirstCorner; // size = nF
+  vector<int> _faceSize;        // size = nF
+  vector<int> _cornerFace;      // size = nC, separator(-1) -> -1
+  vector<int> _nextCorner;      // size = nC, separator(-1) -> -1
 
   // TODO
 
