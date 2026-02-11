@@ -68,6 +68,17 @@ Node* Group::getChild(const string& name) const {
   return node;
 }
 
+// 在 Group.cpp 中添加这个函数的实现
+
+Node* Group::getChild(int i) const {
+    if (i < 0 || i >= (int)_children.size()) {
+        return (Node*)0; // 或者 return nullptr;
+    }
+
+    return _children[i];
+}
+
+
 int Group::getNumberOfChildren() const {
   return (int)(_children.size());
 }

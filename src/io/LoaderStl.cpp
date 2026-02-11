@@ -49,6 +49,77 @@
 
 const char* LoaderStl::_ext = "stl";
 
+bool LoaderStl::parseFacet(TokenizerFile& tkn,
+                           std::vector<float>& normal,
+                           std::vector<float>& coord,
+                           std::vector<int>& coordIndex) {
+
+    // read next token (facet / endsolid / EOF)
+    if(!tkn.get()) return false;  // EOF
+    std::string tok = (std::string)tkn;
+
+    // normal termination
+    if(tok == "endsolid") {
+        // optional name after endsolid: ignore
+        return false;
+    }
+
+    if(tok != "facet") {
+        throw new StrException(("expected 'facet' or 'endsolid', got '" + tok + "'").c_str());
+    }
+
+    // facet normal nx ny nz
+    if(!(tkn.expecting("normal") && tkn.get()))
+        throw new StrException("expected 'normal' after 'facet'");
+
+    if(!tkn.get()) throw new StrException("expected nx");
+    float nx = std::stof((std::string)tkn);
+    if(!tkn.get()) throw new StrException("expected ny");
+    float ny = std::stof((std::string)tkn);
+    if(!tkn.get()) throw new StrException("expected nz");
+    float nz = std::stof((std::string)tkn);
+
+    // outer loop
+    if(!(tkn.expecting("outer") && tkn.get()))
+        throw new StrException("expected 'outer'");
+    if(!(tkn.expecting("loop") && tkn.get()))
+        throw new StrException("expected 'loop'");
+
+    // 3 vertices
+    int base = (int)(coord.size() / 3);
+    for(int k=0; k<3; k++) {
+        if(!(tkn.expecting("vertex") && tkn.get()))
+            throw new StrException("expected 'vertex'");
+
+        if(!tkn.get()) throw new StrException("expected vx");
+        float x = std::stof((std::string)tkn);
+        if(!tkn.get()) throw new StrException("expected vy");
+        float y = std::stof((std::string)tkn);
+        if(!tkn.get()) throw new StrException("expected vz");
+        float z = std::stof((std::string)tkn);
+
+        coord.push_back(x);
+        coord.push_back(y);
+        coord.push_back(z);
+
+        coordIndex.push_back(base + k);
+    }
+    coordIndex.push_back(-1);
+
+    // endloop endfacet
+    if(!(tkn.expecting("endloop") && tkn.get()))
+        throw new StrException("expected 'endloop'");
+    if(!(tkn.expecting("endfacet") && tkn.get()))
+        throw new StrException("expected 'endfacet'");
+
+    // per-face normal
+    normal.push_back(nx);
+    normal.push_back(ny);
+    normal.push_back(nz);
+
+    return true;
+}
+
 bool LoaderStl::load(const char* filename, SceneGraph& wrl) {
   bool success = false;
 
@@ -69,7 +140,17 @@ bool LoaderStl::load(const char* filename, SceneGraph& wrl) {
     TokenizerFile tkn(fp);
     // first token should be "solid"
     if(tkn.expecting("solid") && tkn.get()) {
-      string stlName = tkn; // second token should be the solid name
+
+        if(!tkn.get()) throw new StrException("Unexpected EOF after solid");
+        std::string nextTok = (std::string)tkn;
+
+        bool firstFaceAlreadyRead = false;
+
+        if(nextTok == "facet") {
+            firstFaceAlreadyRead = true;
+        } else if (nextTok == "endsolid") {
+        } else {
+        }
 
       // TODO ...
 
@@ -78,12 +159,33 @@ bool LoaderStl::load(const char* filename, SceneGraph& wrl) {
       // 2) the Shape node should have an Appearance node in its appearance field
       // 3) the Appearance node should have a Material node in its material field
       // 4) the Shape node should have an IndexedFaceSet node in its geometry node
+      Shape* shape = new Shape();
+      Appearance* app = new Appearance();
+      Material* mat = new Material();
+      IndexedFaceSet* ifs = new IndexedFaceSet();
+
+      // wire them
+      app->setMaterial(mat);
+      shape->setAppearance(app);
+      shape->setGeometry(ifs);
+
+      wrl.addChild(shape);
+      wrl.setUrl(filename);
 
       // from the IndexedFaceSet
       // 5) get references to the coordIndex, coord, and normal arrays
-      // 6) set the normalPerVertex variable to false (i.e., normals per face)  
+      // 6) set the normalPerVertex variable to false (i.e., normals per face)
+      std::vector<int>&   coordIndex = ifs->getCoordIndex();
+      std::vector<float>& coord      = ifs->getCoord();
+      std::vector<float>& normal     = ifs->getNormal();
+      ifs->setNormalPerVertex(false);  
 
       // the file should contain a list of triangles in the following format
+      while(true) {
+        bool ok = parseFacet(tkn, normal, coord, coordIndex);
+        if(!ok) break; // endsolid/EOF
+      }
+
 
       // facet normal ni nj nk
       //   outer loop
@@ -92,6 +194,11 @@ bool LoaderStl::load(const char* filename, SceneGraph& wrl) {
       //     vertex v3x v3y v3z
       //   endloop
       // endfacet
+      int nF = (int)normal.size() / 3;
+      if(nF <= 0) throw new StrException("no faces loaded from stl");
+
+      success = true;
+    }
 
       // - run an infinite loop to parse all the faces
       // - write a private method to parse each face within the loop
@@ -101,7 +208,7 @@ bool LoaderStl::load(const char* filename, SceneGraph& wrl) {
       // - if your method returns false
       //     throw an StrException explaining why the method failed
 
-    }
+    
 
     // close the file (this statement may not be reached)
     fclose(fp);
