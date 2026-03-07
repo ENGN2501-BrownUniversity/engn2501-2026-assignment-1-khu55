@@ -63,6 +63,7 @@ public:
 
   vector<pNode>&        getChildren();
   Node*                 getChild(const string& name) const;
+  Node*                 getChild(int i) const;
   int                   getNumberOfChildren() const;
   pNode                 operator[](const int i);
   void                  addChild(pNode child);

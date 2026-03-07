@@ -49,71 +49,113 @@
 
 const char* LoaderStl::_ext = "stl";
 
-bool LoaderStl::load(const char* filename, SceneGraph& wrl) {
-  bool success = false;
+bool LoaderStl::parseFacet(TokenizerFile& tkn,
+                           std::vector<float>& normal,
+                           std::vector<float>& coord,
+                           std::vector<int>& coordIndex) {
 
-  // clear the scene graph
-  wrl.clear();
-  wrl.setUrl("");
-
-  FILE* fp = (FILE*)0;
-  try {
-
-    // open the file
-    if(filename==(char*)0) throw new StrException("filename==null");
-    fp = fopen(filename,"r");
-    if(fp==(FILE*)0) throw new StrException("fp==(FILE*)0");
-
-    // use the io/Tokenizer class to parse the input ascii file
-
-    TokenizerFile tkn(fp);
-    // first token should be "solid"
-    if(tkn.expecting("solid") && tkn.get()) {
-      string stlName = tkn; // second token should be the solid name
-
-      // TODO ...
-
-      // create the scene graph structure :
-      // 1) the SceneGraph should have a single Shape node a child
-      // 2) the Shape node should have an Appearance node in its appearance field
-      // 3) the Appearance node should have a Material node in its material field
-      // 4) the Shape node should have an IndexedFaceSet node in its geometry node
-
-      // from the IndexedFaceSet
-      // 5) get references to the coordIndex, coord, and normal arrays
-      // 6) set the normalPerVertex variable to false (i.e., normals per face)  
-
-      // the file should contain a list of triangles in the following format
-
-      // facet normal ni nj nk
-      //   outer loop
-      //     vertex v1x v1y v1z
-      //     vertex v2x v2y v2z
-      //     vertex v3x v3y v3z
-      //   endloop
-      // endfacet
-
-      // - run an infinite loop to parse all the faces
-      // - write a private method to parse each face within the loop
-      // - the method should return true if successful, and false if not
-      // - if your method returns tru
-      //     update the normal, coord, and coordIndex variables
-      // - if your method returns false
-      //     throw an StrException explaining why the method failed
-
+    // normal termination
+    if(tkn == "endsolid") {
+        // optional name after endsolid: ignore
+        return false;
     }
 
-    // close the file (this statement may not be reached)
-    fclose(fp);
-    
-  } catch(StrException* e) { 
-    
-    if(fp!=(FILE*)0) fclose(fp);
-    fprintf(stderr,"ERROR | %s\n",e->what());
-    delete e;
+    if(tkn != "facet") {
+        throw new StrException(("expected 'facet' or 'endsolid', got '" + tkn + "'").c_str());
+    }
 
-  }
+    // facet normal nx ny nz
+    if(!tkn.expecting("normal"))
+        throw new StrException("expected 'normal' after 'facet'");
 
-  return success;
+    Vec3f n;
+    if(!tkn.getVec3f(n)) throw new StrException("failed to read facet normal");
+
+    if(!tkn.expecting("outer")) throw new StrException("expected 'outer'");
+    if(!tkn.expecting("loop")) throw new StrException("expected 'loop'");
+
+
+    int base = (int)(coord.size() / 3);
+    for(int k = 0; k < 3; k++) {
+        if(!tkn.expecting("vertex")) throw new StrException("expected 'vertex'");
+
+        Vec3f v;
+        if(!tkn.getVec3f(v)) throw new StrException("failed to read vertex");
+
+        coord.push_back(v.x);
+        coord.push_back(v.y);
+        coord.push_back(v.z);
+
+        coordIndex.push_back(base + k);
+    }
+    coordIndex.push_back(-1);
+
+    if(!tkn.expecting("endloop")) throw new StrException("expected 'endloop'");
+    if(!tkn.expecting("endfacet")) throw new StrException("expected 'endfacet'");
+
+    normal.push_back(n.x);
+    normal.push_back(n.y);
+    normal.push_back(n.z);
+
+    tkn.get();
+    return true;
+}
+
+bool LoaderStl::load(const char* filename, SceneGraph& wrl) {
+    bool success = false;
+
+
+    wrl.clear();
+    wrl.setUrl("");
+
+    FILE* fp = (FILE*)0;
+    try {
+        if(filename == (char*)0) throw new StrException("filename == null");
+        fp = fopen(filename, "r");
+        if(fp == (FILE*)0) throw new StrException("could not open file");
+
+        TokenizerFile tkn(fp);
+        if(!tkn.expecting("solid")) throw new StrException("Not an ASCII STL file");
+
+        tkn.get();
+        if((std::string)tkn != "facet" && (std::string)tkn != "endsolid") {
+            if(!tkn.get()) throw new StrException("Empty STL body");
+        }
+
+        Shape* shape = new Shape();
+        Appearance* app = new Appearance();
+        Material* mat = new Material();
+        IndexedFaceSet* ifs = new IndexedFaceSet();
+
+        app->setMaterial(mat);
+        shape->setAppearance(app);
+        shape->setGeometry(ifs);
+
+        wrl.addChild(shape);
+        wrl.setUrl(filename);
+
+        std::vector<int>&    coordIndex = ifs->getCoordIndex();
+        std::vector<float>&  coord      = ifs->getCoord();
+        std::vector<float>&  normal     = ifs->getNormal();
+        ifs->setNormalPerVertex(false);
+
+        while(true) {
+            bool ok = parseFacet(tkn, normal, coord, coordIndex);
+            if(!ok) break; // 读到 endsolid 或文件末尾时退出
+        }
+
+        if((int)normal.size() / 3 <= 0) throw new StrException("no faces loaded from stl");
+
+        success = true;
+
+    }
+    catch(StrException* e) {
+        fprintf(stderr, "ERROR | %s\n", e->what());
+        delete e;
+    }
+
+    if (fp != (FILE*)0) fclose(fp);
+
+    return success;
 }
 
